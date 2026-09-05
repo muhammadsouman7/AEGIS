@@ -17,6 +17,11 @@
   <p id="status">Mode: detect</p>
 
   <script>
+    // Add this near the top of your <script> tag temporarily
+    window.onerror = function(msg, url, line) {
+      document.getElementById('status').innerText = "ERROR: " + msg;
+    };
+    
     const BACKEND_URL = "https://53fa-34-125-252-14.ngrok-free.app"; // e.g. https://xxxx.ngrok-free.app
     const video = document.getElementById('video');
     const canvas = document.createElement('canvas');
