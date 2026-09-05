@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AEGIS</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; background: #111; color: #fff; }
+    video { width: 100%; max-width: 500px; border-radius: 10px; }
+    button { padding: 12px 20px; margin: 8px; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <h2>AEGIS Live</h2>
+  <video id="video" autoplay playsinline></video><br>
+  <button onclick="setMode('detect')">Obstacle Alert</button>
+  <button onclick="setMode('read_text')">Read Text</button>
+  <button onclick="promptFind()">Find Object</button>
+  <p id="status">Mode: detect</p>
+
+  <script>
+    const BACKEND_URL = "PASTE_NGROK_URL_HERE"; // e.g. https://xxxx.ngrok-free.app
+    const video = document.getElementById('video');
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    let mode = 'detect';
+    let target = '';
+    let lastSpoken = '';
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+      .then(stream => video.srcObject = stream);
+
+    function setMode(m) {
+      mode = m;
+      document.getElementById('status').innerText = "Mode: " + m;
+    }
+
+    function promptFind() {
+      target = prompt("What object are you looking for?");
+      mode = 'find_object';
+      document.getElementById('status').innerText = "Finding: " + target;
+    }
+
+    function speak(text) {
+      if (text === lastSpoken) return;
+      lastSpoken = text;
+      window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+    }
+
+    setInterval(() => {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+      const imageData = canvas.toDataURL('image/jpeg', 0.5);
+
+      const endpoint = mode === 'find_object' ? 'find_object' : mode;
+      const body = mode === 'find_object'
+        ? { image: imageData, target: target }
+        : { image: imageData };
+
+      fetch(`${BACKEND_URL}/${endpoint}`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      })
+      .then(res => res.json())
+      .then(data => speak(data.message))
+      .catch(err => console.log(err));
+    }, 2500);
+  </script>
+</body>
+</html>
