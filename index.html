@@ -4,44 +4,62 @@
   <title>AEGIS</title>
   <style>
     body { font-family: sans-serif; text-align: center; background: #111; color: #fff; }
-    video { width: 100%; max-width: 500px; border-radius: 10px; }
+    video { width: 100%; border-radius: 10px; }
     button { padding: 12px 20px; margin: 8px; font-size: 16px; }
   </style>
 </head>
 <body>
   <h2>AEGIS Live</h2>
-  <video id="video" autoplay playsinline></video><br>
+
+  <div style="position: relative; max-width: 500px; margin: auto;">
+    <video id="video" autoplay playsinline style="width:100%; border-radius:10px;"></video>
+    <canvas id="overlay" style="position:absolute; top:0; left:0; width:100%; height:100%;"></canvas>
+  </div>
+
+  <br>
   <button onclick="setMode('detect')">Obstacle Alert</button>
   <button onclick="setMode('read_text')">Read Text</button>
   <button onclick="promptFind()">Find Object</button>
   <p id="status">Mode: detect</p>
 
   <script>
-    // Add this near the top of your <script> tag temporarily
     window.onerror = function(msg, url, line) {
       document.getElementById('status').innerText = "ERROR: " + msg;
     };
-    
-    const BACKEND_URL = "https://58b6-34-125-252-14.ngrok-free.app"; // e.g. https://xxxx.ngrok-free.app
+
+    const BACKEND_URL = "https://65d9-34-125-252-14.ngrok-free.app";
+
     const video = document.getElementById('video');
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
+    const overlay = document.getElementById('overlay');
+    const overlayCtx = overlay.getContext('2d');
+
+    const captureCanvas = document.createElement('canvas'); // hidden, used to grab frames
+    const captureCtx = captureCanvas.getContext('2d');
+
     let mode = 'detect';
     let target = '';
     let lastSpoken = '';
 
     navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-      .then(stream => video.srcObject = stream);
+      .then(stream => {
+        video.srcObject = stream;
+        video.onloadedmetadata = () => {
+          overlay.width = video.videoWidth;
+          overlay.height = video.videoHeight;
+        };
+      });
 
     function setMode(m) {
       mode = m;
       document.getElementById('status').innerText = "Mode: " + m;
+      overlayCtx.clearRect(0, 0, overlay.width, overlay.height); // clear boxes when switching modes
     }
 
     function promptFind() {
       target = prompt("What object are you looking for?");
       mode = 'find_object';
       document.getElementById('status').innerText = "Finding: " + target;
+      overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
     }
 
     function speak(text) {
@@ -50,11 +68,34 @@
       window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
     }
 
+    function drawBoxes(boxes, frameW, frameH) {
+      overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+      if (!boxes || !frameW || !frameH) return;
+
+      const scaleX = overlay.width / frameW;
+      const scaleY = overlay.height / frameH;
+
+      boxes.forEach(box => {
+        const x = box.x1 * scaleX;
+        const y = box.y1 * scaleY;
+        const w = (box.x2 - box.x1) * scaleX;
+        const h = (box.y2 - box.y1) * scaleY;
+
+        overlayCtx.strokeStyle = "#00FF00";
+        overlayCtx.lineWidth = 3;
+        overlayCtx.strokeRect(x, y, w, h);
+
+        overlayCtx.fillStyle = "#00FF00";
+        overlayCtx.font = "16px sans-serif";
+        overlayCtx.fillText(box.label, x, y > 20 ? y - 5 : y + 15);
+      });
+    }
+
     setInterval(() => {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0);
-      const imageData = canvas.toDataURL('image/jpeg', 0.5);
+      captureCanvas.width = video.videoWidth;
+      captureCanvas.height = video.videoHeight;
+      captureCtx.drawImage(video, 0, 0);
+      const imageData = captureCanvas.toDataURL('image/jpeg', 0.5);
 
       const endpoint = mode === 'find_object' ? 'find_object' : mode;
       const body = mode === 'find_object'
@@ -70,11 +111,18 @@
         body: JSON.stringify(body)
       })
       .then(res => res.json())
-      .then(data => speak(data.message))
+      .then(data => {
+        speak(data.message);
+        if (mode === 'detect') {
+          drawBoxes(data.boxes || [], data.frame_w, data.frame_h);
+        } else {
+          overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+        }
+      })
       .catch(err => {
         document.getElementById('status').innerText = "Fetch error: " + err.message;
       });
-    }, 2500);
+    }, 2000);
   </script>
 </body>
 </html>
