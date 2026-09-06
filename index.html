@@ -27,7 +27,7 @@
       document.getElementById('status').innerText = "ERROR: " + msg;
     };
 
-    const BACKEND_URL = "https://70ac-34-126-129-133.ngrok-free.app";
+    const BACKEND_URL = "https://3710-34-126-129-133.ngrok-free.app"; // UPDATE with your current ngrok URL
 
     const video = document.getElementById('video');
     const overlay = document.getElementById('overlay');
@@ -52,6 +52,8 @@
       mode = m;
       document.getElementById('status').innerText = "Mode: " + m;
       overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+      lastCategory = 'none'; // reset so new mode speaks fresh
+      lastSteps = null;
     }
 
     function promptFind() {
@@ -59,20 +61,28 @@
       mode = 'find_object';
       document.getElementById('status').innerText = "Finding: " + target;
       overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+      lastCategory = 'none';
+      lastSteps = null;
     }
 
-    // ===== Speak logic (speaks once per category, urgent interrupts) =====
-    let lastSpokenCategory = '';
+    // ===== Speak logic: only speaks on category change, big distance change, or urgency =====
+    let lastCategory = 'none';
+    let lastSteps = null;
     let lastSpeakTime = 0;
+    const SAFETY_TIMEOUT = 10000; // re-remind after 10s of silence even if unchanged
 
-    function speak(text, isUrgent) {
-      const category = text.split(' ')[0];
+    function speak(text, isUrgent, category, steps) {
       const now = Date.now();
-      const cooldownPassed = now - lastSpeakTime > 4000;
+      const categoryChanged = category !== lastCategory;
+      const gotSignificantlyCloser = (
+        lastSteps !== null && steps !== null && (lastSteps - steps) >= 3
+      );
+      const safetyTimeoutPassed = now - lastSpeakTime > SAFETY_TIMEOUT;
 
-      if (isUrgent || category !== lastSpokenCategory || cooldownPassed) {
+      if (isUrgent || categoryChanged || gotSignificantlyCloser || safetyTimeoutPassed) {
         speakImmediate(text);
-        lastSpokenCategory = category;
+        lastCategory = category;
+        lastSteps = steps;
         lastSpeakTime = now;
       }
     }
@@ -138,7 +148,8 @@
 
       mode = data.mode;
       target = data.target || '';
-      lastSpokenCategory = '';
+      lastCategory = 'none';
+      lastSteps = null;
       document.getElementById('status').innerText = `Mode: ${mode}${target ? ' (' + target + ')' : ''}`;
       speakImmediate(`Mode set to ${mode.replace('_', ' ')}${target ? ', looking for ' + target : ''}`);
     }
@@ -189,7 +200,7 @@
       })
       .then(res => res.json())
       .then(data => {
-        speak(data.message, data.urgent);
+        speak(data.message, data.urgent, data.primary_category, data.primary_steps);
         if (mode === 'detect') {
           drawBoxes(data.boxes || [], data.frame_w, data.frame_h);
         } else {
