@@ -27,18 +27,17 @@
       document.getElementById('status').innerText = "ERROR: " + msg;
     };
 
-    const BACKEND_URL = "https://89a1-34-143-216-244.ngrok-free.app";
+    const BACKEND_URL = "https://70ac-34-126-129-133.ngrok-free.app";
 
     const video = document.getElementById('video');
     const overlay = document.getElementById('overlay');
     const overlayCtx = overlay.getContext('2d');
 
-    const captureCanvas = document.createElement('canvas'); // hidden, used to grab frames
+    const captureCanvas = document.createElement('canvas');
     const captureCtx = captureCanvas.getContext('2d');
 
     let mode = 'detect';
     let target = '';
-    let lastSpoken = '';
 
     navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
       .then(stream => {
@@ -52,7 +51,7 @@
     function setMode(m) {
       mode = m;
       document.getElementById('status').innerText = "Mode: " + m;
-      overlayCtx.clearRect(0, 0, overlay.width, overlay.height); // clear boxes when switching modes
+      overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
     }
 
     function promptFind() {
@@ -62,12 +61,89 @@
       overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
     }
 
-    function speak(text) {
-      if (text === lastSpoken) return;
-      lastSpoken = text;
-      window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+    // ===== Speak logic (speaks once per category, urgent interrupts) =====
+    let lastSpokenCategory = '';
+    let lastSpeakTime = 0;
+
+    function speak(text, isUrgent) {
+      const category = text.split(' ')[0];
+      const now = Date.now();
+      const cooldownPassed = now - lastSpeakTime > 4000;
+
+      if (isUrgent || category !== lastSpokenCategory || cooldownPassed) {
+        speakImmediate(text);
+        lastSpokenCategory = category;
+        lastSpeakTime = now;
+      }
     }
 
+    function speakImmediate(text) {
+      if (recognition) recognition.stop();
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.onend = () => { if (isListening && recognition) recognition.start(); };
+      window.speechSynthesis.speak(utter);
+    }
+
+    // ===== Always-listening wake word =====
+    let recognition;
+    let isListening = false;
+
+    function initAlwaysListening() {
+      recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+      recognition.lang = 'en-US';
+      recognition.continuous = true;
+      recognition.interimResults = false;
+
+      recognition.onresult = (event) => {
+        const last = event.results.length - 1;
+        const transcript = event.results[last][0].transcript.toLowerCase().trim();
+        console.log("Heard:", transcript);
+
+        if (transcript.includes("hey aegis") || transcript.includes("hey egis")) {
+          const command = transcript.split(/hey aegis|hey egis/)[1]?.trim();
+          if (command) {
+            handleWakeCommand(command);
+          } else {
+            speakImmediate("Yes, I'm listening");
+          }
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.log("Speech recognition error:", event.error);
+      };
+
+      recognition.onend = () => {
+        if (isListening) recognition.start();
+      };
+
+      isListening = true;
+      recognition.start();
+      document.getElementById('status').innerText = "Listening for 'Hey AEGIS'...";
+    }
+
+    async function handleWakeCommand(command) {
+      document.getElementById('status').innerText = `Command: "${command}"`;
+
+      const res = await fetch(`${BACKEND_URL}/parse_intent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true'
+        },
+        body: JSON.stringify({ text: command })
+      });
+      const data = await res.json();
+
+      mode = data.mode;
+      target = data.target || '';
+      lastSpokenCategory = '';
+      document.getElementById('status').innerText = `Mode: ${mode}${target ? ' (' + target + ')' : ''}`;
+      speakImmediate(`Mode set to ${mode.replace('_', ' ')}${target ? ', looking for ' + target : ''}`);
+    }
+
+    // ===== Bounding box drawing =====
     function drawBoxes(boxes, frameW, frameH) {
       overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
       if (!boxes || !frameW || !frameH) return;
@@ -91,6 +167,7 @@
       });
     }
 
+    // ===== Main detection loop =====
     setInterval(() => {
       captureCanvas.width = video.videoWidth;
       captureCanvas.height = video.videoHeight;
@@ -112,7 +189,7 @@
       })
       .then(res => res.json())
       .then(data => {
-        speak(data.message);
+        speak(data.message, data.urgent);
         if (mode === 'detect') {
           drawBoxes(data.boxes || [], data.frame_w, data.frame_h);
         } else {
@@ -123,6 +200,11 @@
         document.getElementById('status').innerText = "Fetch error: " + err.message;
       });
     }, 2000);
+
+    // ===== Start listening on load =====
+    window.onload = () => {
+      initAlwaysListening();
+    };
   </script>
 </body>
 </html>
