@@ -27,7 +27,7 @@
       document.getElementById('status').innerText = "ERROR: " + msg;
     };
 
-    const BACKEND_URL = "https://d0f7-34-16-188-189.ngrok-free.app"; // UPDATE with your current ngrok URL
+    const BACKEND_URL = "https://9d3c-34-16-188-189.ngrok-free.app"; // UPDATE with your current ngrok URL
 
     const video = document.getElementById('video');
     const overlay = document.getElementById('overlay');
@@ -52,7 +52,7 @@
       mode = m;
       document.getElementById('status').innerText = "Mode: " + m;
       overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
-      lastCategory = 'none'; // reset so new mode speaks fresh
+      lastCategory = 'none';
       lastSteps = null;
     }
 
@@ -65,11 +65,11 @@
       lastSteps = null;
     }
 
-    // ===== Speak logic: only speaks on category change, big distance change, or urgency =====
+    // ===== Speak logic =====
     let lastCategory = 'none';
     let lastSteps = null;
     let lastSpeakTime = 0;
-    const SAFETY_TIMEOUT = 10000; // re-remind after 10s of silence even if unchanged
+    const SAFETY_TIMEOUT = 10000;
 
     function speak(text, isUrgent, category, steps) {
       const now = Date.now();
@@ -87,17 +87,31 @@
       }
     }
 
+    // ===== REPLACED: safe recognition start/stop handling =====
+    let recognition;
+    let isListening = false;
+    let recognitionActive = false;
+
     function speakImmediate(text) {
-      if (recognition) recognition.stop();
+      if (recognition && recognitionActive) {
+        recognition.stop(); // triggers onend, which restarts safely after
+      }
       window.speechSynthesis.cancel();
       const utter = new SpeechSynthesisUtterance(text);
-      utter.onend = () => { if (isListening && recognition) recognition.start(); };
+      utter.onend = () => {
+        if (isListening) safeStartRecognition();
+      };
       window.speechSynthesis.speak(utter);
     }
 
-    // ===== Always-listening wake word =====
-    let recognition;
-    let isListening = false;
+    function safeStartRecognition() {
+      if (recognitionActive) return;
+      try {
+        recognition.start();
+      } catch (e) {
+        console.log("Start skipped:", e.message);
+      }
+    }
 
     function initAlwaysListening() {
       recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
@@ -105,9 +119,14 @@
       recognition.continuous = true;
       recognition.interimResults = false;
 
+      recognition.onstart = () => {
+        recognitionActive = true;
+      };
+
       recognition.onresult = (event) => {
         const last = event.results.length - 1;
         const transcript = event.results[last][0].transcript.toLowerCase().trim();
+        document.getElementById('status').innerText = "Heard: " + transcript;
         console.log("Heard:", transcript);
 
         if (transcript.includes("hey aegis") || transcript.includes("hey egis")) {
@@ -122,16 +141,21 @@
 
       recognition.onerror = (event) => {
         console.log("Speech recognition error:", event.error);
+        recognitionActive = false;
       };
 
       recognition.onend = () => {
-        if (isListening) recognition.start();
+        recognitionActive = false;
+        if (isListening) {
+          safeStartRecognition();
+        }
       };
 
       isListening = true;
-      recognition.start();
+      safeStartRecognition();
       document.getElementById('status').innerText = "Listening for 'Hey AEGIS'...";
     }
+    // ===== END replaced block =====
 
     async function handleWakeCommand(command) {
       document.getElementById('status').innerText = `Command: "${command}"`;
@@ -154,7 +178,6 @@
       speakImmediate(`Mode set to ${mode.replace('_', ' ')}${target ? ', looking for ' + target : ''}`);
     }
 
-    // ===== Bounding box drawing =====
     function drawBoxes(boxes, frameW, frameH) {
       overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
       if (!boxes || !frameW || !frameH) return;
@@ -178,7 +201,6 @@
       });
     }
 
-    // ===== Main detection loop =====
     setInterval(() => {
       captureCanvas.width = video.videoWidth;
       captureCanvas.height = video.videoHeight;
@@ -212,7 +234,6 @@
       });
     }, 2000);
 
-    // ===== Start listening on load =====
     window.onload = () => {
       initAlwaysListening();
     };
