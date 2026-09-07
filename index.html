@@ -129,8 +129,8 @@
         document.getElementById('status').innerText = "Heard: " + transcript;
         console.log("Heard:", transcript);
 
-        if (transcript.includes("hey aegis") || transcript.includes("hey egis")) {
-          const command = transcript.split(/hey aegis|hey egis/)[1]?.trim();
+        if (transcript.includes("hey vision") || transcript.includes("hey egis")) {
+          const command = transcript.split(/hey vision/)[1]?.trim();
           if (command) {
             handleWakeCommand(command);
           } else {
@@ -153,7 +153,7 @@
 
       isListening = true;
       safeStartRecognition();
-      document.getElementById('status').innerText = "Listening for 'Hey AEGIS'...";
+      document.getElementById('status').innerText = "Listening for 'Hey Vision'...";
     }
     // ===== END replaced block =====
 
